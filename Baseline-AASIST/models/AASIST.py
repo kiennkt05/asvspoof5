@@ -13,6 +13,8 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch import Tensor
 
+from utils import str_to_bool
+from models.leaf_frontend import GaborConv1D, sPCEN
 
 class GraphAttentionLayer(nn.Module):
     def __init__(self, in_dim, out_dim, **kwargs):
@@ -466,6 +468,53 @@ class Residual_block(nn.Module):
         return out
 
 
+class DynamicFrontend(nn.Module):
+    def __init__(self, filts, first_conv, use_gabor=True, use_spcen=True, use_sm=False):
+        super().__init__()
+        self.use_gabor = use_gabor
+        self.use_spcen = use_spcen
+        self.use_sm = use_sm
+        
+        if use_gabor:
+            self.filterbank = GaborConv1D(out_channels=filts, kernel_size=first_conv)
+            spcen_channels = filts if use_sm else filts * 2
+            
+            if not use_sm:
+                self.proj_real = nn.Parameter(torch.ones(1, filts, 1) * 0.5)
+                self.proj_imag = nn.Parameter(torch.ones(1, filts, 1) * 0.5)
+        else:
+            self.filterbank = CONV(out_channels=filts, kernel_size=first_conv)
+            spcen_channels = filts
+        if use_spcen:
+            self.spcen = sPCEN(num_filters=spcen_channels)
+        else:
+            self.spcen = nn.Identity()
+
+    def forward(self, x):
+        x = self.filterbank(x)
+        
+        # 1. Non-linear Rectification / Envelope Extraction
+        if self.use_gabor and self.use_sm:
+            # TRUE Squared Modulus: R^2 + I^2
+            x_real, x_imag = torch.chunk(x, 2, dim=1)
+            x = torch.square(x_real) + torch.square(x_imag)
+        else:
+            # Absolute value for SincConv OR Complex Gabor
+            x = torch.abs(x)
+        
+        # 2. Pooling
+        x = F.max_pool1d(x, 3)
+        
+        # 3. Energy Normalization
+        x = self.spcen(x)
+        
+        # 4. Complex Fusion (Only if Gabor AND NOT Squared Modulus)
+        if self.use_gabor and not self.use_sm:
+            x_real, x_imag = torch.chunk(x, 2, dim=1)
+            x = (x_real * self.proj_real) + (x_imag * self.proj_imag)
+        return x
+
+
 class Model(nn.Module):
     def __init__(self, d_args):
         super().__init__()
@@ -476,9 +525,18 @@ class Model(nn.Module):
         pool_ratios = d_args["pool_ratios"]
         temperatures = d_args["temperatures"]
 
-        self.conv_time = CONV(out_channels=filts[0],
-                              kernel_size=d_args["first_conv"],
-                              in_channels=1)
+        use_gabor = str_to_bool(str(d_args.get("use_gabor", "True")))
+        use_spcen = str_to_bool(str(d_args.get("use_spcen", "True")))
+        use_sm = str_to_bool(str(d_args.get("use_sm", "False")))
+
+        self.frontend = DynamicFrontend(
+            filts=filts[0],
+            first_conv=d_args["first_conv"],
+            use_gabor=use_gabor,
+            use_spcen=use_spcen,
+            use_sm=use_sm
+        )
+
         self.first_bn = nn.BatchNorm2d(num_features=1)
 
         self.drop = nn.Dropout(0.5, inplace=True)
@@ -493,7 +551,7 @@ class Model(nn.Module):
             nn.Sequential(Residual_block(nb_filts=filts[4])),
             nn.Sequential(Residual_block(nb_filts=filts[4])))
 
-        self.pos_S = nn.Parameter(torch.randn(1, 23, filts[-1][-1]))
+        self.pos_S = nn.Parameter(torch.randn(1, filts[0] // 3, filts[-1][-1]))
         self.master1 = nn.Parameter(torch.randn(1, 1, gat_dims[0]))
         self.master2 = nn.Parameter(torch.randn(1, 1, gat_dims[0]))
 
@@ -528,9 +586,11 @@ class Model(nn.Module):
     def forward(self, x, Freq_aug=False):
 
         x = x.unsqueeze(1)
-        x = self.conv_time(x, mask=Freq_aug)
-        x = x.unsqueeze(dim=1)
-        x = F.max_pool2d(torch.abs(x), (3, 3))
+        x = self.frontend(x)
+
+        x = x.unsqueeze(1)
+        x = F.max_pool2d(x, (3, 1))
+        
         x = self.first_bn(x)
         x = self.selu(x)
 
