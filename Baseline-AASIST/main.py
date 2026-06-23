@@ -135,9 +135,10 @@ def main(args: argparse.Namespace) -> None:
 
     # define database related paths
     output_dir = Path(args.output_dir)
-    database_path = Path(config["database_path"])
-    dev_trial_path = (database_path /
-                      "ASVspoof5.dev.metainfor.txt")
+    trn_database_path = Path(config["trn_database_path"])
+    trn_list_path = Path(config["trn_list_path"])
+    dev_database_path = Path(config["dev_database_path"])
+    dev_trial_path = Path(config["dev_trial_path"])
     # define model related paths
     model_tag = "{}_ep{}_bs{}".format(
         os.path.splitext(os.path.basename(args.config))[0],
@@ -166,7 +167,8 @@ def main(args: argparse.Namespace) -> None:
 
     # Define dataloaders.
     trn_loader, dev_loader = get_loader(
-        database_path, args.seed, config, train_generator
+        trn_database_path, trn_list_path, dev_database_path, dev_trial_path,
+        args.seed, config, train_generator
     )
 
     # evaluates pretrained model 
@@ -329,19 +331,12 @@ def get_model(model_config: Dict, device: torch.device):
     return model
 
 
-def get_loader(database_path: str,
+def get_loader(trn_database_path: str, trn_list_path: str,
+               dev_database_path: str, dev_trial_path: str,
                seed: int,
                config: dict,
                train_generator: torch.Generator) -> List[torch.utils.data.DataLoader]:
     """Make PyTorch DataLoaders for train / development."""
-
-    trn_database_path = database_path / "flac_T/"
-    dev_database_path = database_path / "flac_D/"
-
-    trn_list_path = (database_path /
-                     "ASVspoof5.train.metainfor.txt")
-    dev_trial_path = (database_path /
-                      "ASVspoof5.dev.metainfor.txt")
 
     d_label_trn, file_train = genSpoof_list(dir_meta=trn_list_path,
                                             is_train=True,
@@ -366,8 +361,7 @@ def get_loader(database_path: str,
                                 is_eval=False)
     print("no. validation files:", len(file_dev))
 
-    dev_set = TestDataset(list_IDs=file_dev[:2000],
-                                            base_dir=dev_database_path)
+    dev_set = TestDataset(list_IDs=file_dev, base_dir=dev_database_path)
     dev_loader = DataLoader(dev_set,
                             batch_size=config["batch_size"],
                             shuffle=False,

@@ -3,3 +3,4 @@ numpy
 soundfile
 tensorboard
 tqdm
+six

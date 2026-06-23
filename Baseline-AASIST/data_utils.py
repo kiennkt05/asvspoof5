@@ -17,19 +17,24 @@ def genSpoof_list(dir_meta, is_train=False, is_eval=False):
 
     if is_train:
         for line in l_meta:
-            _, key, _, _, _, label = line.strip().split(" ")
+            parts = line.strip().split()
+            key = parts[1]
+            label = parts[8] if len(parts) >= 10 else parts[5]
             file_list.append(key)
             d_meta[key] = 1 if label == "bonafide" else 0
         return d_meta, file_list
 
     elif is_eval:
         for line in l_meta:
-            _, key, _, _, _, _ = line.strip().split(" ")
+            parts = line.strip().split()
+            key = parts[1]
             file_list.append(key)
         return file_list
     else:
         for line in l_meta:
-            _, key, _, _, _, label = line.strip().split(" ")
+            parts = line.strip().split()
+            key = parts[1]
+            label = parts[8] if len(parts) >= 10 else parts[5]
             file_list.append(key)
             d_meta[key] = 1 if label == "bonafide" else 0
         return d_meta, file_list
