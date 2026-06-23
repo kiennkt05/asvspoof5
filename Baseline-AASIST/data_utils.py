@@ -1,3 +1,6 @@
+import random
+import sys
+
 import numpy as np
 import soundfile as sf
 import torch
@@ -77,7 +80,14 @@ class TrainDataset(Dataset):
 
     def __getitem__(self, index):
         key = self.list_IDs[index]
-        X, _ = sf.read(str(self.base_dir / f"{key}.flac"))
+        try:
+            X, _ = sf.read(str(self.base_dir / f"{key}.flac"))
+        except Exception as e:
+            print(f"[WARNING] Corrupted file {key}.flac: {e}",
+                  file=sys.stderr)
+            # fall back to a random different sample
+            new_index = random.randint(0, len(self.list_IDs) - 1)
+            return self.__getitem__(new_index)
         X_pad = pad_random(X, self.cut)
         x_inp = Tensor(X_pad)
         y = self.labels[key]
@@ -97,7 +107,13 @@ class TestDataset(Dataset):
 
     def __getitem__(self, index):
         key = self.list_IDs[index]
-        X, _ = sf.read(str(self.base_dir / f"{key}.flac"))
+        try:
+            X, _ = sf.read(str(self.base_dir / f"{key}.flac"))
+        except Exception as e:
+            print(f"[WARNING] Corrupted file {key}.flac: {e}",
+                  file=sys.stderr)
+            new_index = random.randint(0, len(self.list_IDs) - 1)
+            return self.__getitem__(new_index)
         X_pad = pad(X, self.cut)
         x_inp = Tensor(X_pad)
         return x_inp, key

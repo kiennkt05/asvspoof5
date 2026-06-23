@@ -382,7 +382,7 @@ def produce_evaluation_file(
         trial_lines = f_trl.readlines()
     fname_list = []
     score_list = []
-    for batch_x, utt_id in tqdm(data_loader):
+    for batch_x, utt_id in tqdm(data_loader, desc="Evaluating"):
         batch_x = batch_x.to(device)
         with torch.no_grad():
             _, batch_out = model(batch_x)
@@ -394,7 +394,10 @@ def produce_evaluation_file(
     #assert len(trial_lines) == len(fname_list) == len(score_list)
     with open(save_path, "w") as fh:
         for fn, sco, trl in zip(fname_list, score_list, trial_lines):
-            spk_id, utt_id, _, _, src, key = trl.strip().split(' ')
+            parts = trl.strip().split()
+            spk_id = parts[0]
+            utt_id = parts[1]
+            key = parts[8] if len(parts) >= 10 else parts[5]
             assert fn == utt_id
             fh.write("{} {} {} {}\n".format(spk_id, utt_id, sco, key))
     print("Scores saved to {}".format(save_path))
